@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-base: var(--bg);
+  --color-panel: var(--panel);
+  --color-raise: var(--raise);
+  --color-line: var(--line);
+  --color-fg: var(--fg);
+  --color-mute: var(--mute);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-rec: var(--rec);
+  --color-rec-fg: var(--rec-fg);
+  --font-sans: "Bahnschrift", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+}
+
+:root {
+  --bg: #121212; --panel: #181818; --raise: #222222; --line: #2c2c2c;
+  --fg: #ece9e2; --mute: #8b8780;
+  --accent: #f2a93b; --accent-fg: #1c1304;
+  --rec: #e5484d; --rec-fg: #ffffff;
+  color-scheme: dark;
+}
+
+html, body, #root { height: 100%; }
+html, body, #root { background: transparent; }
+body {
+  margin: 0;
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  user-select: none;
+  overflow: hidden;
+}
+input, select, button { font: inherit; }
+input[type="text"], input[type="number"] { user-select: text; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 6px; border: 2px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background: var(--mute); }
+input[type="number"]::-webkit-inner-spin-button { opacity: 0; }
+input[type="number"]:hover::-webkit-inner-spin-button { opacity: 1; }
+@layer base {
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+}
+
+@keyframes rec-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--rec) 55%, transparent); }
+  50% { box-shadow: 0 0 0 9px transparent; }
+}
+.rec-pulse { animation: rec-pulse 1.2s ease-out infinite; }
+@media (prefers-reduced-motion: reduce) { .rec-pulse { animation: none; } }
