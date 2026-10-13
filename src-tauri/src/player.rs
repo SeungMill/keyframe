@@ -266,6 +266,12 @@ impl Runner<'_> {
             }
             EventKind::MouseDown { button } => self.button(button, true),
             EventKind::MouseUp { button } => self.button(button, false),
+            EventKind::MouseHold { button, duration_ms } => {
+                self.button(button, true);
+                let ok = util::wait_ms(*duration_ms, self.cancel);
+                self.button(button, false);
+                return ok;
+            }
             EventKind::MouseClick { button } => {
                 self.button(button, true);
                 let ok = util::wait_ms(TAP_HOLD_MS, self.cancel);

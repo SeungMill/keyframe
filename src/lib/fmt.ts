@@ -50,7 +50,7 @@ export function shortTrigger(t: Trigger | null): string {
 }
 
 export function totalMs(events: { delayMs: number; type: string; ms?: number; durationMs?: number }[]): number {
-  return events.reduce((s, e) => s + e.delayMs + (e.type === "delay" ? (e.ms ?? 0) : e.type === "keyHold" ? (e.durationMs ?? 0) : 0), 0);
+  return events.reduce((s, e) => s + e.delayMs + (e.type === "delay" ? (e.ms ?? 0) : e.type === "keyHold" || e.type === "mouseHold" ? (e.durationMs ?? 0) : 0), 0);
 }
 
 const DOM_TO_KEY: Record<string, string> = {

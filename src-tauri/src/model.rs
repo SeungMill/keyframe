@@ -23,6 +23,7 @@ pub enum EventKind {
     MouseDown { button: String },
     MouseUp { button: String },
     MouseClick { button: String },
+    MouseHold { button: String, duration_ms: u64 },
     MouseMove { x: i32, y: i32, relative: bool },
     // dy > 0 scrolls up, dx > 0 scrolls right
     Scroll { dx: i32, dy: i32 },

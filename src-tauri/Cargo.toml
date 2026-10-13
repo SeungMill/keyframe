@@ -1,6 +1,6 @@
 [package]
 name = "keyframe"
-version = "0.1.0"
+version = "0.1.1"
 description = "Macro recorder and player"
 license = "MIT"
 edition = "2021"

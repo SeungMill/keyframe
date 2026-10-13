@@ -10,13 +10,14 @@ import ContextMenu, { type MenuItem } from "./ContextMenu";
 type EType = MacroEvent["type"];
 
 const META: Record<EType, { label: string; Icon: LucideIcon }> = {
-  keyPress: { label: "Key press", Icon: Keyboard },
-  keyRelease: { label: "Key release", Icon: Keyboard },
+  keyPress: { label: "Key down", Icon: Keyboard },
+  keyRelease: { label: "Key up", Icon: Keyboard },
   keyTap: { label: "Key tap", Icon: Keyboard },
   keyHold: { label: "Key hold", Icon: Keyboard },
   mouseDown: { label: "Mouse down", Icon: Mouse },
   mouseUp: { label: "Mouse up", Icon: Mouse },
   mouseClick: { label: "Click", Icon: MousePointerClick },
+  mouseHold: { label: "Mouse hold", Icon: Mouse },
   mouseMove: { label: "Move", Icon: Move },
   scroll: { label: "Scroll", Icon: ChevronsUpDown },
   delay: { label: "Delay", Icon: Clock },
@@ -26,24 +27,45 @@ const META: Record<EType, { label: string; Icon: LucideIcon }> = {
   loopEnd: { label: "End loop", Icon: Repeat },
 };
 
-type AddKind = "keyTap" | "keyHold" | "mouseClick" | "mouseMove" | "scroll" | "delay" | "typeText" | "runProgram";
+type AddKind =
+  | "keyTap" | "keyHold" | "keyDown" | "keyUp"
+  | "mouseClick" | "mouseHold" | "mouseDown" | "mouseUp" | "mouseMove" | "scroll"
+  | "delay" | "typeText" | "runProgram";
 
-const ADD_KINDS: { id: AddKind; label: string }[] = [
-  { id: "keyTap", label: "Key tap" },
-  { id: "keyHold", label: "Key hold" },
-  { id: "mouseClick", label: "Mouse click" },
-  { id: "mouseMove", label: "Mouse move" },
-  { id: "scroll", label: "Scroll" },
-  { id: "delay", label: "Delay" },
-  { id: "typeText", label: "Type text" },
-  { id: "runProgram", label: "Run program" },
+const ADD_LABELS: Record<AddKind, string> = {
+  keyTap: "Key tap",
+  keyHold: "Key hold",
+  keyDown: "Key down",
+  keyUp: "Key up",
+  mouseClick: "Mouse click",
+  mouseHold: "Mouse hold",
+  mouseDown: "Mouse down",
+  mouseUp: "Mouse up",
+  mouseMove: "Mouse move",
+  scroll: "Scroll",
+  delay: "Delay",
+  typeText: "Type text",
+  runProgram: "Run program",
+};
+
+const ADD_GROUPS: AddKind[][] = [
+  ["keyTap", "keyHold", "keyDown", "keyUp"],
+  ["mouseClick", "mouseHold", "mouseDown", "mouseUp", "mouseMove", "scroll"],
+  ["delay", "typeText", "runProgram"],
 ];
+
+const KEY_KINDS: AddKind[] = ["keyTap", "keyHold", "keyDown", "keyUp"];
 
 function defaults(kind: AddKind): EventKind {
   switch (kind) {
     case "keyTap": return { type: "keyTap", key: "" };
     case "keyHold": return { type: "keyHold", key: "", durationMs: 100 };
+    case "keyDown": return { type: "keyPress", key: "" };
+    case "keyUp": return { type: "keyRelease", key: "" };
     case "mouseClick": return { type: "mouseClick", button: "Left" };
+    case "mouseHold": return { type: "mouseHold", button: "Left", durationMs: 100 };
+    case "mouseDown": return { type: "mouseDown", button: "Left" };
+    case "mouseUp": return { type: "mouseUp", button: "Left" };
     case "mouseMove": return { type: "mouseMove", x: 0, y: 0, relative: false };
     case "scroll": return { type: "scroll", dx: 0, dy: -1 };
     case "delay": return { type: "delay", ms: 25 };
@@ -124,6 +146,16 @@ function Value({ ev, set, pickKey, pickButton, autoFocus }: ValueProps) {
         <ChipButton title="Click to change the button" onClick={pickButton}>
           {ev.button}
         </ChipButton>
+      );
+    case "mouseHold":
+      return (
+        <span className="flex items-center gap-2">
+          <ChipButton title="Click to change the button" onClick={pickButton}>
+            {ev.button}
+          </ChipButton>
+          <Num value={ev.durationMs} min={1} onChange={(n) => set({ durationMs: n })} />
+          <span className="text-xs text-mute">ms</span>
+        </span>
       );
     case "mouseMove":
       return (
@@ -306,7 +338,7 @@ export default function EventList({ events, live, recording, playingIndex, clipb
     const ev = { id: uid(), delayMs: 0, ...defaults(kind) } as MacroEvent;
     insertAt(at, [ev]);
     setSelected(new Set([ev.id]));
-    if (kind === "keyTap" || kind === "keyHold") pickKey(ev.id, true);
+    if (KEY_KINDS.includes(kind)) pickKey(ev.id, true);
     else if (kind === "typeText" || kind === "runProgram") setFocusId(ev.id);
   }
 
@@ -319,15 +351,44 @@ export default function EventList({ events, live, recording, playingIndex, clipb
   const paste = (at: number) => clipboard.length && insertAt(at, clone(clipboard));
   const duplicate = () => selIdx.length && insertAt(afterSelection, clone(selIdx.map((i) => events[i])));
 
-  function wrapLoop(count: number) {
-    if (!selIdx.length) return;
-    const lo = Math.min(...selIdx), hi = Math.max(...selIdx);
+  function wrapLoop(count: number, targets: number[]) {
+    if (!targets.length) return;
+    const lo = Math.min(...targets), hi = Math.max(...targets);
     onChange([
       ...events.slice(0, lo),
       { id: uid(), delayMs: 0, type: "loopStart", count },
       ...events.slice(lo, hi + 1),
       { id: uid(), delayMs: 0, type: "loopEnd" },
       ...events.slice(hi + 1),
+    ]);
+  }
+
+  function holdAround(targets: number[], down: EventKind, up: EventKind) {
+    const lo = Math.min(...targets), hi = Math.max(...targets);
+    onChange([
+      ...events.slice(0, lo),
+      { id: uid(), delayMs: 0, ...down } as MacroEvent,
+      ...events.slice(lo, hi + 1),
+      { id: uid(), delayMs: 0, ...up } as MacroEvent,
+      ...events.slice(hi + 1),
+    ]);
+  }
+
+  async function holdKeyAround(targets: number[]) {
+    const firstId = events[Math.min(...targets)].id;
+    const lastId = events[Math.max(...targets)].id;
+    const r = await requestCapture("key");
+    if (r.kind !== "key") return;
+    const cur = eventsRef.current;
+    const lo = cur.findIndex((e) => e.id === firstId);
+    const hi = cur.findIndex((e) => e.id === lastId);
+    if (lo < 0 || hi < 0) return;
+    onChange([
+      ...cur.slice(0, lo),
+      { id: uid(), delayMs: 0, type: "keyPress", key: r.key } as MacroEvent,
+      ...cur.slice(lo, hi + 1),
+      { id: uid(), delayMs: 0, type: "keyRelease", key: r.key } as MacroEvent,
+      ...cur.slice(hi + 1),
     ]);
   }
 
@@ -368,7 +429,11 @@ export default function EventList({ events, live, recording, playingIndex, clipb
     else if (mod && e.key === "d") { e.preventDefault(); duplicate(); }
   }
 
-  const addMenu = (at: number): MenuItem[] => ADD_KINDS.map((k) => ({ label: k.label, onSelect: () => addAction(k.id, at) }));
+  const addMenu = (at: number): MenuItem[] =>
+    ADD_GROUPS.flatMap((group, gi): MenuItem[] => [
+      ...(gi ? [{ separator: true }] : []),
+      ...group.map((id) => ({ label: ADD_LABELS[id], onSelect: () => addAction(id, at) })),
+    ]);
 
   function emptyMenu(e: React.MouseEvent) {
     e.preventDefault();
@@ -405,7 +470,15 @@ export default function EventList({ events, live, recording, playingIndex, clipb
         { label: "Duplicate", hint: "Ctrl+D", onSelect: () => insertAt(hi + 1, clone(targets.map((t) => events[t]))) },
         {
           label: "Wrap in loop",
-          children: [2, 3, 5, 10].map((n) => ({ label: `${n} times`, onSelect: () => wrapLoop(n) })).concat([{ label: "Until stopped", onSelect: () => wrapLoop(0) }]),
+          children: [2, 3, 5, 10].map((n) => ({ label: `${n} times`, onSelect: () => wrapLoop(n, targets) })).concat([{ label: "Until stopped", onSelect: () => wrapLoop(0, targets) }]),
+        },
+        { label: "Hold a key during these", onSelect: () => holdKeyAround(targets) },
+        {
+          label: "Hold a mouse button during these",
+          children: ["Left", "Right", "Middle"].map((b) => ({
+            label: b,
+            onSelect: () => holdAround(targets, { type: "mouseDown", button: b }, { type: "mouseUp", button: b }),
+          })),
         },
         { separator: true },
         { label: targets.length > 1 ? `Delete ${targets.length} actions` : "Delete", hint: "Del", danger: true, onSelect: () => onChange(events.filter((_, k) => !targets.includes(k))) },

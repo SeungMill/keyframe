@@ -6,6 +6,7 @@ export type EventKind =
   | { type: "mouseDown"; button: string }
   | { type: "mouseUp"; button: string }
   | { type: "mouseClick"; button: string }
+  | { type: "mouseHold"; button: string; durationMs: number }
   | { type: "mouseMove"; x: number; y: number; relative: boolean }
   | { type: "scroll"; dx: number; dy: number }
   | { type: "delay"; ms: number }
