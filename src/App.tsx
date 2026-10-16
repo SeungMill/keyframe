@@ -21,7 +21,8 @@ export default function App() {
   const [rec, setRec] = useState<RecordingPayload>({ state: "idle", countdown: 0, macroId: null });
   const [live, setLive] = useState<MacroEvent[]>([]);
   const [playing, setPlaying] = useState<Record<string, PlaybackPayload>>({});
-  const [capturing, setCapturing] = useState<"trigger" | "key" | null>(null);
+  const [capturing, setCapturing] = useState<"trigger" | "key" | "input" | null>(null);
+  const [pausedIds, setPausedIds] = useState<Set<string>>(new Set());
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [maximized, setMaximized] = useState(false);
   const [clipboard, setClipboard] = useState<MacroEvent[]>([]);
@@ -67,6 +68,14 @@ export default function App() {
             if (e.payload.state === "playing") next[e.payload.macroId] = e.payload;
             else delete next[e.payload.macroId];
             return next;
+          }),
+        ),
+        listen<{ macroId: string; paused: boolean }>("playback-paused", (e) =>
+          setPausedIds((s) => {
+            const n = new Set(s);
+            if (e.payload.paused) n.add(e.payload.macroId);
+            else n.delete(e.payload.macroId);
+            return n;
           }),
         ),
         listen<CaptureResult>("capture-result", (e) => {
@@ -116,7 +125,7 @@ export default function App() {
     captureResolver.current = null;
   }, []);
 
-  const requestCapture = useCallback((kind: "trigger" | "key") => {
+  const requestCapture = useCallback((kind: "trigger" | "key" | "input") => {
     return new Promise<CaptureResult>((resolve) => {
       captureResolver.current = resolve;
       setCapturing(kind);
@@ -137,7 +146,7 @@ export default function App() {
       const isMod = /^(Control|Shift|Alt|Meta)(Left|Right)$/.test(e.code);
       let result: CaptureResult | null = null;
       if (e.code === "Escape") result = { kind: "cancelled" };
-      else if (capturing === "key") {
+      else if (capturing === "key" || capturing === "input") {
         const key = domCodeToKey(e.code);
         if (key) result = { kind: "key", key };
       } else if (!isMod && !e.repeat) {
@@ -251,6 +260,12 @@ export default function App() {
     if (!sel) return;
     const r = await requestCapture("trigger");
     if (r.kind === "trigger") updateMacro(sel.id, (m) => ({ ...m, trigger: r.trigger }));
+  }
+
+  async function addPriority(id: string) {
+    const r = await requestCapture("input");
+    if (r.kind !== "key") return;
+    updateMacro(id, (m) => (m.priorityKeys.includes(r.key) ? m : { ...m, priorityKeys: [...m.priorityKeys, r.key] }));
   }
 
   async function pickRecordHotkey() {
@@ -377,6 +392,8 @@ export default function App() {
                 onSetTrigger={setTrigger}
                 onClearTrigger={() => updateMacro(sel.id, (m) => ({ ...m, trigger: null }))}
                 onProcess={(process) => updateMacro(sel.id, (m) => ({ ...m, process }))}
+                onAddPriority={() => addPriority(sel.id)}
+                paused={pausedIds.has(sel.id)}
                 onChange={(patch) => updateMacro(sel.id, (m) => ({ ...m, ...patch }))}
                 onPlay={() => flushSaves().then(() => api.playMacro(sel.id)).catch(fail)}
                 onStop={() => api.stopPlayback(sel.id).catch(fail)}
@@ -418,9 +435,9 @@ export default function App() {
       {capturing && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/70">
           <div className="w-[400px] rounded-xl border border-line bg-panel p-6 text-center shadow-2xl">
-            <p className="text-lg font-medium">{capturing === "trigger" ? "Press a key combo or mouse button" : "Press a key"}</p>
+            <p className="text-lg font-medium">{capturing === "trigger" ? "Press a key combo or mouse button" : capturing === "input" ? "Press a key or mouse button" : "Press a key"}</p>
             <p className="mt-2 text-sm text-mute">
-              {capturing === "trigger" ? "Hold Ctrl, Alt or Shift first for a combo. Left click can't be used. Esc cancels." : "Esc cancels."}
+              {capturing === "trigger" ? "Hold Ctrl, Alt or Shift first for a combo. Left click can't be used. Esc cancels." : capturing === "input" ? "Left click can't be used. Esc cancels." : "Esc cancels."}
             </p>
             <button
               onClick={() => api.cancelCapture().catch(() => {}).finally(() => finishCapture({ kind: "cancelled" }))}

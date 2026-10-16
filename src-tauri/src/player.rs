@@ -91,6 +91,7 @@ pub fn start(app: &AppHandle, m: Macro, passes: u32) -> Result<(), String> {
         return Err("Can't play while recording.".into());
     }
     let cancel = Arc::new(AtomicBool::new(false));
+    let paused = Arc::new(AtomicBool::new(false));
     {
         let mut pb = st.playback.lock();
         if pb.contains_key(&m.id) {
@@ -98,15 +99,18 @@ pub fn start(app: &AppHandle, m: Macro, passes: u32) -> Result<(), String> {
         }
         pb.insert(m.id.clone(), cancel.clone());
     }
+    st.paused.lock().insert(m.id.clone(), paused.clone());
     let app2 = app.clone();
     let id = m.id.clone();
     let spawned = thread::Builder::new()
         .name(format!("playback-{}", m.name))
-        .spawn(move || run(app2, m, passes, cancel));
+        .spawn(move || run(app2, m, passes, cancel, paused));
     if let Err(e) = spawned {
         st.playback.lock().remove(&id);
+        st.paused.lock().remove(&id);
         return Err(e.to_string());
     }
+    crate::priority::sync_polling(app);
     Ok(())
 }
 
@@ -117,9 +121,9 @@ fn emit(app: &AppHandle, id: &str, state: PlayState, pass: u32, total: u32, idx:
     );
 }
 
-fn run(app: AppHandle, m: Macro, passes: u32, cancel: Arc<AtomicBool>) {
+fn run(app: AppHandle, m: Macro, passes: u32, cancel: Arc<AtomicBool>, paused: Arc<AtomicBool>) {
     emit(&app, &m.id, PlayState::Playing, 0, passes, 0);
-    if let Err(e) = execute(&app, &m, passes, &cancel) {
+    if let Err(e) = execute(&app, &m, passes, &cancel, paused) {
         toast(&app, "error", format!("Playback of \"{}\" failed: {e}", m.name));
         cancel.store(true, Ordering::SeqCst);
     }
@@ -130,6 +134,7 @@ fn run(app: AppHandle, m: Macro, passes: u32, cancel: Arc<AtomicBool>) {
             pb.remove(&m.id);
         }
     }
+    crate::priority::finish(&app, &m.id);
     let end = if cancel.load(Ordering::SeqCst) { PlayState::Cancelled } else { PlayState::Done };
     emit(&app, &m.id, end, 0, passes, 0);
 }
@@ -141,6 +146,7 @@ struct Runner<'a> {
     cancel: &'a AtomicBool,
     inj: Option<Injector>,
     warned: bool,
+    paused: Arc<AtomicBool>,
     keys: HashSet<String>,
     btns: HashSet<String>,
     pass: u32,
@@ -148,13 +154,14 @@ struct Runner<'a> {
     last_emit: Instant,
 }
 
-fn execute(app: &AppHandle, m: &Macro, passes: u32, cancel: &AtomicBool) -> Result<(), String> {
+fn execute(app: &AppHandle, m: &Macro, passes: u32, cancel: &AtomicBool, paused: Arc<AtomicBool>) -> Result<(), String> {
     let enigo = Enigo::new(&EnigoSettings::default()).map_err(|e| e.to_string())?;
     let backend = app.state::<AppState>().settings.lock().input_backend;
     let inj = Injector::new(backend, crate::driver::dll_path(app))?;
     let mut r = Runner {
         inj,
         warned: false,
+        paused,
         app,
         macro_id: &m.id,
         enigo,
@@ -214,7 +221,7 @@ impl Runner<'_> {
                 continue;
             }
             let ev = &events[i];
-            if !util::wait_ms(ev.delay_ms, self.cancel) {
+            if !self.wait(ev.delay_ms) {
                 return false;
             }
             self.progress(i);
@@ -225,7 +232,7 @@ impl Runner<'_> {
                 }
                 EventKind::LoopEnd => {
                     let next = loop_end(&mut stack, i);
-                    if next == i && !util::wait_ms(1, self.cancel) {
+                    if next == i && !self.wait(1) {
                         return false;
                     }
                     i = next;
@@ -254,13 +261,13 @@ impl Runner<'_> {
             EventKind::KeyRelease { key } => self.key(key, false),
             EventKind::KeyTap { key } => {
                 self.key(key, true);
-                let ok = util::wait_ms(TAP_HOLD_MS, self.cancel);
+                let ok = self.wait(TAP_HOLD_MS);
                 self.key(key, false);
                 return ok;
             }
             EventKind::KeyHold { key, duration_ms } => {
                 self.key(key, true);
-                let ok = util::wait_ms(*duration_ms, self.cancel);
+                let ok = self.wait(*duration_ms);
                 self.key(key, false);
                 return ok;
             }
@@ -268,13 +275,13 @@ impl Runner<'_> {
             EventKind::MouseUp { button } => self.button(button, false),
             EventKind::MouseHold { button, duration_ms } => {
                 self.button(button, true);
-                let ok = util::wait_ms(*duration_ms, self.cancel);
+                let ok = self.wait(*duration_ms);
                 self.button(button, false);
                 return ok;
             }
             EventKind::MouseClick { button } => {
                 self.button(button, true);
-                let ok = util::wait_ms(TAP_HOLD_MS, self.cancel);
+                let ok = self.wait(TAP_HOLD_MS);
                 self.button(button, false);
                 return ok;
             }
@@ -300,7 +307,7 @@ impl Runner<'_> {
                     }
                 }
             }
-            EventKind::Delay { ms } => return util::wait_ms(*ms, self.cancel),
+            EventKind::Delay { ms } => return self.wait(*ms),
             EventKind::TypeText { text, char_delay_ms } => {
                 if *char_delay_ms == 0 {
                     if let Err(e) = self.enigo.text(text) {
@@ -309,7 +316,7 @@ impl Runner<'_> {
                 } else {
                     for ch in text.chars() {
                         let _ = self.enigo.text(&ch.to_string());
-                        if !util::wait_ms(*char_delay_ms, self.cancel) {
+                        if !self.wait(*char_delay_ms) {
                             return false;
                         }
                     }
@@ -332,6 +339,8 @@ impl Runner<'_> {
             eprintln!("unknown key '{name}', skipped");
             return;
         };
+        let app = self.app;
+        app.state::<AppState>().note_key_out(name, down);
         if down {
             self.keys.insert(name.to_string());
         } else {
@@ -380,6 +389,57 @@ impl Runner<'_> {
                 toast(self.app, "error", e);
             }
             self.cancel.store(true, Ordering::SeqCst);
+        }
+    }
+
+    fn gate(&mut self) -> Option<Duration> {
+        if self.cancel.load(Ordering::Relaxed) {
+            return None;
+        }
+        if !self.paused.load(Ordering::Relaxed) {
+            return Some(Duration::ZERO);
+        }
+        let started = Instant::now();
+        let held_keys: Vec<String> = self.keys.iter().cloned().collect();
+        let held_btns: Vec<String> = self.btns.iter().cloned().collect();
+        for k in &held_keys {
+            self.key(k, false);
+        }
+        for b in &held_btns {
+            self.button(b, false);
+        }
+        while self.paused.load(Ordering::Relaxed) {
+            if self.cancel.load(Ordering::Relaxed) {
+                return None;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        for k in &held_keys {
+            self.key(k, true);
+        }
+        for b in &held_btns {
+            self.button(b, true);
+        }
+        Some(started.elapsed())
+    }
+
+    fn wait(&mut self, ms: u64) -> bool {
+        let mut deadline = Instant::now() + Duration::from_millis(ms);
+        loop {
+            match self.gate() {
+                None => return false,
+                Some(paused_for) => deadline += paused_for,
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return true;
+            }
+            let rem = deadline - now;
+            if rem > Duration::from_millis(3) {
+                thread::sleep((rem - Duration::from_millis(2)).min(Duration::from_millis(10)));
+            } else {
+                std::hint::spin_loop();
+            }
         }
     }
 

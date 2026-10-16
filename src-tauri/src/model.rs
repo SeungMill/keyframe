@@ -9,6 +9,9 @@ fn yes() -> bool {
 fn one() -> u32 {
     1
 }
+fn resume_default() -> u64 {
+    400
+}
 fn default_hotkey() -> String {
     "Ctrl+Shift+R".to_string()
 }
@@ -82,6 +85,10 @@ pub struct Macro {
     pub folder: Option<String>,
     #[serde(default)]
     pub process: Option<String>,
+    #[serde(default)]
+    pub priority_keys: Vec<String>,
+    #[serde(default = "resume_default")]
+    pub priority_resume_ms: u64,
 }
 
 impl Macro {
@@ -96,6 +103,8 @@ impl Macro {
             events: vec![],
             folder: None,
             process: None,
+            priority_keys: vec![],
+            priority_resume_ms: 400,
         }
     }
 }

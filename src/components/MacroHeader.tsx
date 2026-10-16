@@ -2,13 +2,16 @@ import { Play, Square, X } from "lucide-react";
 import type { Macro, PlaybackPayload, PlayMode } from "../lib/types";
 import { totalMs, triggerLabel } from "../lib/fmt";
 import ProcessPicker from "./ProcessPicker";
+import PriorityPicker from "./PriorityPicker";
 
 interface Props {
   macro: Macro;
   playing?: PlaybackPayload;
+  paused?: boolean;
   onSetTrigger: () => void;
   onClearTrigger: () => void;
   onProcess: (p: string | null) => void;
+  onAddPriority: () => void;
   onChange: (patch: Partial<Macro>) => void;
   onPlay: () => void;
   onStop: () => void;
@@ -21,18 +24,21 @@ const MODE_HELP: Record<PlayMode, string> = {
   whileHeld: "Loops while the trigger is held",
 };
 
-export default function MacroHeader({ macro: m, playing, ...p }: Props) {
+export default function MacroHeader({ macro: m, playing, paused, ...p }: Props) {
   const secs = totalMs(m.events) / 1000;
   return (
     <div className="flex items-center gap-2 px-4 py-3">
       <h2 className="min-w-0 truncate text-[15px] font-medium">{m.name}</h2>
       <span className="shrink-0 text-xs text-mute">
         {playing
-          ? `Playing, pass ${playing.pass}${playing.total ? ` of ${playing.total}` : ""}`
+          ? paused
+            ? "Paused, resuming when you let go"
+            : `Playing, pass ${playing.pass}${playing.total ? ` of ${playing.total}` : ""}`
           : `${m.events.length} actions, ${secs.toFixed(secs < 10 ? 2 : 1)} s`}
       </span>
       <div className="flex-1" />
 
+      <PriorityPicker keys={m.priorityKeys} resumeMs={m.priorityResumeMs} onChange={p.onChange} onAdd={p.onAddPriority} />
       <ProcessPicker value={m.process} onChange={p.onProcess} />
 
       <span className="group flex items-center rounded-md border border-line bg-panel">

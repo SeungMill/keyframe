@@ -25,6 +25,13 @@ pub struct Recorder {
 pub enum CaptureKind {
     Trigger,
     Key,
+    Input,
+}
+
+#[derive(Default)]
+pub struct Prio {
+    pub held: HashSet<String>,
+    pub generation: u64,
 }
 
 pub struct Capture {
@@ -45,6 +52,9 @@ pub struct AppState {
     pub capture: Mutex<Option<Capture>>,
     pub held: Mutex<HashSet<String>>,
     pub inject: Mutex<VecDeque<(String, bool, Instant)>>,
+    pub paused: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    pub prio: Mutex<HashMap<String, Prio>>,
+    pub keys_out: Mutex<HashMap<String, (bool, Instant)>>,
 }
 
 impl AppState {
@@ -54,6 +64,18 @@ impl AppState {
         while q.len() > 64 {
             q.pop_front();
         }
+    }
+
+    pub fn note_key_out(&self, key: &str, down: bool) {
+        self.keys_out.lock().insert(key.to_string(), (down, Instant::now()));
+    }
+
+    pub fn is_key_ours(&self, key: &str) -> bool {
+        self.keys_out
+            .lock()
+            .get(key)
+            .map(|(down, at)| *down || at.elapsed() < Duration::from_millis(80))
+            .unwrap_or(false)
     }
 
     pub fn consume_inject(&self, button: &str, down: bool) -> bool {

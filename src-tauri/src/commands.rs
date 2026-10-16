@@ -142,6 +142,7 @@ pub async fn start_capture(app: AppHandle, kind: String) -> Result<(), String> {
     let kind = match kind.as_str() {
         "trigger" => CaptureKind::Trigger,
         "key" => CaptureKind::Key,
+        "input" => CaptureKind::Input,
         other => return Err(format!("Unknown capture kind '{other}'.")),
     };
     let st = app.state::<AppState>();

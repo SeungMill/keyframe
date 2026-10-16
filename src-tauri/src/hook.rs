@@ -1,5 +1,5 @@
 use crate::input::{self, InputEvent, Kind};
-use crate::{keys, model::*, player, recorder, state::*};
+use crate::{keys, model::*, player, priority, recorder, state::*};
 use std::{sync::mpsc, thread};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -35,6 +35,12 @@ fn dispatch(app: &AppHandle, ev: InputEvent) {
     }
 
     recorder::on_event(app, &st, &ev);
+
+    match &ev.kind {
+        Kind::KeyDown(n) | Kind::ButtonDown(n) => priority::on_input(app, n, true),
+        Kind::KeyUp(n) | Kind::ButtonUp(n) => priority::on_input(app, n, false),
+        _ => {}
+    }
 
     let (name, pressed) = match &ev.kind {
         Kind::ButtonDown(b) => (b.clone(), true),
@@ -97,7 +103,7 @@ fn handle_capture(app: &AppHandle, st: &AppState, ev: &InputEvent) -> bool {
                     return true;
                 } else {
                     match c.kind {
-                        CaptureKind::Key => result = CapturePayload::Key { key: name.clone() },
+                        CaptureKind::Key | CaptureKind::Input => result = CapturePayload::Key { key: name.clone() },
                         CaptureKind::Trigger => match keys::accel_key(name) {
                             Some(tok) => {
                                 result = CapturePayload::Trigger {
@@ -116,10 +122,15 @@ fn handle_capture(app: &AppHandle, st: &AppState, ev: &InputEvent) -> bool {
                 return true;
             }
             Kind::ButtonDown(b) => {
-                if c.kind == CaptureKind::Trigger && b != "Left" {
-                    result = CapturePayload::Trigger { trigger: Trigger::Mouse { button: b.clone() } };
-                } else {
+                if b == "Left" {
                     return true;
+                }
+                match c.kind {
+                    CaptureKind::Trigger => {
+                        result = CapturePayload::Trigger { trigger: Trigger::Mouse { button: b.clone() } }
+                    }
+                    CaptureKind::Input => result = CapturePayload::Key { key: b.clone() },
+                    CaptureKind::Key => return true,
                 }
             }
             _ => return true,

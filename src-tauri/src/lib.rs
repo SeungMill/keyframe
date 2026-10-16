@@ -7,6 +7,7 @@ mod input;
 mod keys;
 mod model;
 mod player;
+mod priority;
 mod procs;
 mod recorder;
 mod state;

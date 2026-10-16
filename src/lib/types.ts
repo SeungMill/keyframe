@@ -33,6 +33,8 @@ export interface Macro {
   events: MacroEvent[];
   folder: string | null;
   process: string | null;
+  priorityKeys: string[];
+  priorityResumeMs: number;
 }
 
 export type DelayMode = "record" | "fixed" | "none";

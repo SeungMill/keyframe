@@ -18,6 +18,7 @@ npm run tauri build
 - Right-click the action list to add actions, paste, undo or redo. Right-click an action for insert, copy, duplicate, wrap in loop and delete.
 - Each macro has a trigger (key combo or mouse button), a play mode (once, N times, toggle, while held) and an optional app it is limited to.
 - To hold a key or mouse button while other actions run, select those actions, right-click and pick "Hold a key during these" (or mouse button). Select actions and use "Wrap in loop" to repeat them.
+- Priority keys: each macro can have keys or mouse buttons that pause it while you hold them, so you can do something else by hand. It resumes shortly after you let go (the delay is adjustable). Set them with the pause button in the macro header.
 - Macros can be put in folders and searched. Import and export live in the `...` menu.
 - Themes are defined in `src/lib/themes.ts`. Add an entry and it shows up in Settings.
 - The close button quits the app. Turn on "Close button hides to tray" in Settings to keep it running in the background instead.

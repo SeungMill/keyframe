@@ -79,9 +79,23 @@ unsafe extern "system" fn ms_proc(code: i32, w: usize, l: isize) -> isize {
 }
 
 static KEYS_ON: AtomicBool = AtomicBool::new(false);
+static PRIO_ON: AtomicBool = AtomicBool::new(false);
+static PRIO_MASK: Mutex<[bool; 256]> = Mutex::new([false; 256]);
 
 pub fn set_keys_enabled(on: bool) {
     KEYS_ON.store(on, Ordering::SeqCst);
+}
+
+pub fn set_priority_vks(vks: &[u16]) {
+    if let Ok(mut mask) = PRIO_MASK.lock() {
+        *mask = [false; 256];
+        for &v in vks {
+            if (v as usize) < 256 {
+                mask[v as usize] = true;
+            }
+        }
+    }
+    PRIO_ON.store(!vks.is_empty(), Ordering::SeqCst);
 }
 
 fn key_is_down(vk: usize) -> bool {
@@ -95,23 +109,32 @@ fn pollable(vk: usize) -> bool {
 fn poll_keys() {
     let mut down = [false; 256];
     let mut held_at_start = [false; 256];
-    let mut active = false;
+    let mut mode = 0u8;
     loop {
-        if !KEYS_ON.load(Ordering::SeqCst) {
-            active = false;
+        let want = if KEYS_ON.load(Ordering::SeqCst) {
+            2
+        } else if PRIO_ON.load(Ordering::SeqCst) {
+            1
+        } else {
+            0
+        };
+        if want == 0 {
+            mode = 0;
             std::thread::sleep(Duration::from_millis(25));
             continue;
         }
-        if !active {
-            active = true;
+        let mask = PRIO_MASK.lock().map(|m| *m).unwrap_or([false; 256]);
+        let wanted = |vk: usize| pollable(vk) && (want == 2 || mask[vk]);
+        if want != mode {
+            mode = want;
             for vk in 8..=0xFE {
-                let d = pollable(vk) && key_is_down(vk);
+                let d = wanted(vk) && key_is_down(vk);
                 down[vk] = d;
                 held_at_start[vk] = d;
             }
         }
         for vk in 8..=0xFE {
-            if !pollable(vk) {
+            if !wanted(vk) {
                 continue;
             }
             let d = key_is_down(vk);
