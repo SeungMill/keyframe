@@ -28,6 +28,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             "rec" => recorder::toggle(app, recorder::StopSource::Ui),
             "quit" => {
                 player::stop_all(app);
+                crate::state::persist(app);
                 app.exit(0);
             }
             _ => {}

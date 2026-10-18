@@ -50,11 +50,12 @@ fn dispatch(app: &AppHandle, ev: InputEvent) {
     if name == "Left" {
         return;
     }
+    let cfg = st.settings.lock().clone();
     let ids: Vec<String> = st
         .macros
         .lock()
         .iter()
-        .filter(|m| m.enabled && matches!(&m.trigger, Some(Trigger::Mouse { button }) if *button == name))
+        .filter(|m| is_armed(m, &cfg) && matches!(&m.trigger, Some(Trigger::Mouse { button }) if *button == name))
         .map(|m| m.id.clone())
         .collect();
     for id in ids {

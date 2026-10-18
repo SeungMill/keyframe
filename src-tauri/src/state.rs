@@ -55,6 +55,8 @@ pub struct AppState {
     pub paused: Mutex<HashMap<String, Arc<AtomicBool>>>,
     pub prio: Mutex<HashMap<String, Prio>>,
     pub keys_out: Mutex<HashMap<String, (bool, Instant)>>,
+    pub full_geom: Mutex<Option<(u32, u32, i32, i32)>>,
+    pub compact_height: Mutex<f64>,
 }
 
 impl AppState {
@@ -104,6 +106,20 @@ fn migrate_old_data(app: &AppHandle) {
     if !new.exists() && old.exists() {
         let _ = std::fs::create_dir_all(&dir);
         let _ = std::fs::copy(&old, &new);
+    }
+}
+
+pub fn is_armed(m: &Macro, s: &Settings) -> bool {
+    if !m.enabled {
+        return false;
+    }
+    if !s.compact {
+        return true;
+    }
+    match (&s.compact_card, &m.folder) {
+        (None, _) => true,
+        (Some(card), Some(folder)) => card == folder,
+        (Some(card), None) => *card == format!("macro:{}", m.id),
     }
 }
 

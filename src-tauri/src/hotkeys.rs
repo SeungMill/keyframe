@@ -22,11 +22,12 @@ pub fn rebuild(app: &AppHandle) {
     }
 
     let fg = crate::procs::foreground_exe();
+    let cfg = st.settings.lock().clone();
     let triggers: Vec<(String, String, String)> = st
         .macros
         .lock()
         .iter()
-        .filter(|m| m.enabled && crate::procs::scope_ok(m.process.as_deref(), fg.as_deref()))
+        .filter(|m| is_armed(m, &cfg) && crate::procs::scope_ok(m.process.as_deref(), fg.as_deref()))
         .filter_map(|m| match &m.trigger {
             Some(crate::model::Trigger::Keyboard { accelerator }) => {
                 Some((m.id.clone(), m.name.clone(), accelerator.clone()))
@@ -48,9 +49,10 @@ pub fn rebuild(app: &AppHandle) {
 fn signature(app: &AppHandle) -> String {
     let fg = crate::procs::foreground_exe();
     let st = app.state::<AppState>();
+    let cfg = st.settings.lock().clone();
     let ms = st.macros.lock();
     ms.iter()
-        .filter(|m| m.enabled && matches!(m.trigger, Some(crate::model::Trigger::Keyboard { .. })))
+        .filter(|m| is_armed(m, &cfg) && matches!(m.trigger, Some(crate::model::Trigger::Keyboard { .. })))
         .filter(|m| crate::procs::scope_ok(m.process.as_deref(), fg.as_deref()))
         .map(|m| m.id.as_str())
         .collect::<Vec<_>>()

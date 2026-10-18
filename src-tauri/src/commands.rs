@@ -1,6 +1,7 @@
 use crate::{driver, hook, hotkeys, model::*, player, procs, recorder, state::*};
 use serde::Serialize;
-use tauri::{AppHandle, Manager};
+use std::time::Duration;
+use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition, PhysicalSize};
 use tauri_plugin_dialog::DialogExt;
 
 #[derive(Serialize)]
@@ -88,21 +89,104 @@ pub async fn select_macro(app: AppHandle, id: Option<String>) {
 }
 
 #[tauri::command]
-pub async fn update_settings(app: AppHandle, settings: Settings) {
+pub async fn update_settings(app: AppHandle, mut settings: Settings) {
     let st = app.state::<AppState>();
     let launch = settings.launch_at_login;
-    let (hotkey_changed, launch_changed) = {
+    let (hotkey_changed, launch_changed, arming_changed, pin_changed) = {
         let mut cur = st.settings.lock();
-        let changed = (cur.record_hotkey != settings.record_hotkey, cur.launch_at_login != launch);
-        *cur = settings;
+        settings.compact_x = cur.compact_x;
+        settings.compact_y = cur.compact_y;
+        let changed = (
+            cur.record_hotkey != settings.record_hotkey,
+            cur.launch_at_login != launch,
+            cur.compact != settings.compact || cur.compact_card != settings.compact_card,
+            cur.always_on_top != settings.always_on_top,
+        );
+        *cur = settings.clone();
         changed
     };
     persist(&app);
-    if hotkey_changed {
+    if hotkey_changed || arming_changed {
         hotkeys::rebuild(&app);
     }
     if launch_changed {
         sync_autostart(&app, launch, true);
+    }
+    if pin_changed {
+        if let Some(w) = app.get_webview_window("main") {
+            let _ = w.set_always_on_top(settings.always_on_top);
+        }
+    }
+}
+
+const COMPACT_WIDTH: f64 = 250.0;
+
+pub fn apply_compact(app: &AppHandle, on: bool, height: f64) {
+    let Some(w) = app.get_webview_window("main") else { return };
+    let st = app.state::<AppState>();
+    if on {
+        if let (Ok(size), Ok(pos)) = (w.outer_size(), w.outer_position()) {
+            let mut g = st.full_geom.lock();
+            if g.is_none() {
+                *g = Some((size.width, size.height, pos.x, pos.y));
+            }
+        }
+        let measured = *st.compact_height.lock();
+        let h = if measured > 0.0 { measured } else { height };
+        let _ = w.set_min_size(Some(LogicalSize::new(200.0, 80.0)));
+        let _ = w.set_resizable(false);
+        let _ = w.set_size(LogicalSize::new(COMPACT_WIDTH, h));
+        let (x, y) = {
+            let s = st.settings.lock();
+            (s.compact_x, s.compact_y)
+        };
+        if let (Some(x), Some(y)) = (x, y) {
+            let _ = w.set_position(PhysicalPosition::new(x, y));
+        }
+        let app2 = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(80));
+            let h = *app2.state::<AppState>().compact_height.lock();
+            if h > 0.0 && app2.state::<AppState>().settings.lock().compact {
+                if let Some(w) = app2.get_webview_window("main") {
+                    let _ = w.set_size(LogicalSize::new(COMPACT_WIDTH, h));
+                }
+            }
+        });
+    } else {
+        let _ = w.set_resizable(true);
+        let _ = w.set_min_size(Some(LogicalSize::new(980.0, 600.0)));
+        let geom = *st.full_geom.lock();
+        let scale = w.scale_factor().unwrap_or(1.0);
+        let size = match geom {
+            Some((fw, fh, _, _)) => PhysicalSize::new(fw.max((980.0 * scale) as u32), fh.max((600.0 * scale) as u32)),
+            None => PhysicalSize::new((1200.0 * scale) as u32, (780.0 * scale) as u32),
+        };
+        let _ = w.set_size(size);
+        if let Some((_, _, x, y)) = geom {
+            let _ = w.set_position(PhysicalPosition::new(x, y));
+        }
+        let w2 = w.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(80));
+            let _ = w2.set_size(size);
+        });
+    }
+}
+
+#[tauri::command]
+pub async fn window_compact(app: AppHandle, on: bool, height: f64) {
+    apply_compact(&app, on, height);
+}
+
+#[tauri::command]
+pub async fn window_compact_size(app: AppHandle, height: f64) {
+    *app.state::<AppState>().compact_height.lock() = height;
+    if !app.state::<AppState>().settings.lock().compact {
+        return;
+    }
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_size(LogicalSize::new(COMPACT_WIDTH, height));
     }
 }
 
@@ -297,6 +381,7 @@ pub async fn window_close(app: AppHandle) {
         }
     } else {
         player::stop_all(&app);
+        persist(&app);
         app.exit(0);
     }
 }

@@ -55,7 +55,8 @@ pub fn trigger(app: &AppHandle, id: &str, pressed: bool) {
         if !crate::procs::scope_ok(m.process.as_deref(), crate::procs::foreground_exe().as_deref()) {
             return;
         }
-        if !st.held.lock().insert(id.to_string()) || !m.enabled {
+        let armed = is_armed(&m, &st.settings.lock().clone());
+        if !st.held.lock().insert(id.to_string()) || !armed {
             return;
         }
         let res = match m.play_mode {
