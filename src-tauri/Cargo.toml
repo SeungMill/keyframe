@@ -1,6 +1,6 @@
 [package]
 name = "keyframe"
-version = "0.1.3"
+version = "0.1.4"
 description = "Macro recorder and player"
 license = "MIT"
 edition = "2021"
@@ -14,7 +14,6 @@ tauri-build = { version = "2.0.0", features = [] }
 
 [dependencies]
 tauri = { version = "2.0.0", features = ["tray-icon"] }
-tauri-plugin-autostart = "2.0.0"
 tauri-plugin-dialog = "2.0.0"
 tauri-plugin-global-shortcut = "2.0.0"
 tauri-plugin-store = "2.0.0"

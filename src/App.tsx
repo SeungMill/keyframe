@@ -8,6 +8,8 @@ import TopBar from "./components/TopBar";
 import Sidebar from "./components/Sidebar";
 import EventList from "./components/EventList";
 import MacroHeader from "./components/MacroHeader";
+import CompactView from "./components/CompactView";
+import { buildCards } from "./lib/cards";
 import ContextMenu, { type MenuItem } from "./components/ContextMenu";
 import { applyTheme, DEFAULT_THEME } from "./lib/themes";
 import { domCodeToKey, uid } from "./lib/fmt";
@@ -25,6 +27,7 @@ export default function App() {
   const [pausedIds, setPausedIds] = useState<Set<string>>(new Set());
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [maximized, setMaximized] = useState(false);
+  const [elevated, setElevated] = useState(false);
   const [clipboard, setClipboard] = useState<MacroEvent[]>([]);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
@@ -51,6 +54,7 @@ export default function App() {
       setMacros(snap.macros);
       setSettings(snap.settings);
       setRec(snap.recording);
+      setElevated(snap.elevated);
       setSelectedId(snap.selected ?? snap.macros[0]?.id ?? null);
 
       const subs = await Promise.all([
@@ -268,6 +272,14 @@ export default function App() {
     updateMacro(id, (m) => (m.priorityKeys.includes(r.key) ? m : { ...m, priorityKeys: [...m.priorityKeys, r.key] }));
   }
 
+  async function pickToggleHotkey() {
+    if (!settings) return;
+    const r = await requestCapture("trigger");
+    if (r.kind !== "trigger") return;
+    if (r.trigger.kind === "keyboard") changeSettings({ ...settings, toggleHotkey: r.trigger.accelerator });
+    else pushToast("warn", "The show / hide hotkey has to be a keyboard shortcut.");
+  }
+
   async function pickRecordHotkey() {
     if (!settings) return;
     const r = await requestCapture("trigger");
@@ -280,6 +292,38 @@ export default function App() {
     setSettings(s);
     api.updateSettings(s).catch(fail);
   };
+
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const opacityTimer = useRef<number>();
+
+  const setOpacity = (v: number) => {
+    setSettings((cur) => (cur ? { ...cur, opacity: v } : cur));
+    window.clearTimeout(opacityTimer.current);
+    opacityTimer.current = window.setTimeout(() => {
+      const cur = settingsRef.current;
+      if (cur) api.updateSettings(cur).catch(fail);
+    }, 250);
+  };
+
+  async function setCompact(on: boolean) {
+    if (!settings) return;
+    let next: Settings;
+    if (on) {
+      const cards = buildCards(macros, settings.folders);
+      const valid = cards.some((c) => c.key === settings.compactCard);
+      next = { ...settings, compact: true, compactCard: valid ? settings.compactCard : cards[0].key };
+    } else {
+      next = { ...settings, compact: false };
+    }
+    setSettings(next);
+    try {
+      await api.updateSettings(next);
+      await api.windowCompact(on, 220);
+    } catch (e) {
+      fail(e);
+    }
+  }
 
   function createFolder() {
     if (!settings) return;
@@ -339,89 +383,109 @@ export default function App() {
   return (
     <div
       className={`flex h-full flex-col overflow-hidden bg-base text-fg ${maximized ? "" : "rounded-xl border border-line"}`}
+      style={settings.compact ? { opacity: settings.opacity / 100 } : undefined}
       onContextMenu={(e) => {
         const tag = (e.target as HTMLElement).tagName;
         if (tag !== "INPUT" && tag !== "TEXTAREA") e.preventDefault();
       }}
     >
-      <TopBar
-        rec={rec}
-        settings={settings}
-        anyPlaying={playingIds.size > 0}
-        canExport={macros.length > 0}
-        onSettings={changeSettings}
-        onRecord={startRecording}
-        onStop={stopAll}
-        onPickHotkey={pickRecordHotkey}
-        onImport={importMacros}
-        onExportSelected={() => sel && exportMacros([sel.id])}
-        onExportAll={() => exportMacros(null)}
-      />
-
-      <div className="flex min-h-0 flex-1">
-        <Sidebar
+      {settings.compact ? (
+        <CompactView
           macros={macros}
-          folders={settings.folders}
-          selectedId={selectedId}
+          settings={settings}
           playing={playingIds}
-          renamingId={renamingId}
-          renamingFolder={renamingFolder}
-          onSelect={setSelectedId}
-          onCreate={() => createMacro()}
-          onCreateFolder={createFolder}
-          onStartFolderRename={setRenamingFolder}
-          onFolderRename={renameFolder}
-          onFolderContext={folderMenu}
-          onReorderFolders={reorderFolders}
+          paused={pausedIds}
+          onSettings={changeSettings}
+          onOpacity={setOpacity}
           onToggle={(id, enabled) => updateMacro(id, (m) => ({ ...m, enabled }))}
-          onStartRename={setRenamingId}
-          onRename={(id, name) => {
-            updateMacro(id, (m) => ({ ...m, name }));
-            setRenamingId(null);
-          }}
-          onContext={macroMenu}
-          onMove={moveMacro}
+          onExpand={() => setCompact(false)}
         />
+      ) : (
+        <>
+          <TopBar
+            rec={rec}
+            settings={settings}
+            anyPlaying={playingIds.size > 0}
+            canExport={macros.length > 0}
+            onSettings={changeSettings}
+            onRecord={startRecording}
+            onStop={stopAll}
+            onPickHotkey={pickRecordHotkey}
+            onPickToggleHotkey={pickToggleHotkey}
+            elevated={elevated}
+            onRestartAdmin={() => api.restartAsAdmin().catch(fail)}
+            onCompact={() => setCompact(true)}
+            onImport={importMacros}
+            onExportSelected={() => sel && exportMacros([sel.id])}
+            onExportAll={() => exportMacros(null)}
+          />
 
-        <main className="flex min-w-0 flex-1 flex-col">
-          {sel ? (
-            <>
-              <MacroHeader
-                macro={sel}
-                playing={playing[sel.id]}
-                onSetTrigger={setTrigger}
-                onClearTrigger={() => updateMacro(sel.id, (m) => ({ ...m, trigger: null }))}
-                onProcess={(process) => updateMacro(sel.id, (m) => ({ ...m, process }))}
-                onAddPriority={() => addPriority(sel.id)}
-                paused={pausedIds.has(sel.id)}
-                onChange={(patch) => updateMacro(sel.id, (m) => ({ ...m, ...patch }))}
-                onPlay={() => flushSaves().then(() => api.playMacro(sel.id)).catch(fail)}
-                onStop={() => api.stopPlayback(sel.id).catch(fail)}
-              />
-              <EventList
-                key={sel.id}
-                events={sel.events}
-                live={live}
-                recording={rec.state === "recording" && (rec.macroId ?? selectedId) === sel.id}
-                playingIndex={playing[sel.id]?.eventIndex ?? null}
-                clipboard={clipboard}
-                setClipboard={setClipboard}
-                onChange={(events) => updateMacro(sel.id, (m) => ({ ...m, events }))}
-                requestCapture={requestCapture}
-              />
-            </>
-          ) : (
-            <div className="grid flex-1 place-items-center text-center text-mute">
-              <div>
-                <p className="text-fg">No macro selected</p>
-                <button onClick={() => createMacro()} className="mt-3 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-accent-fg">
-                  New macro
-                </button>
-              </div>
-            </div>
-          )}
-        </main>
-      </div>
+          <div className="flex min-h-0 flex-1">
+            <Sidebar
+              macros={macros}
+              folders={settings.folders}
+              selectedId={selectedId}
+              playing={playingIds}
+              renamingId={renamingId}
+              renamingFolder={renamingFolder}
+              onSelect={setSelectedId}
+              onCreate={() => createMacro()}
+              onCreateFolder={createFolder}
+              onStartFolderRename={setRenamingFolder}
+              onFolderRename={renameFolder}
+              onFolderContext={folderMenu}
+              onReorderFolders={reorderFolders}
+              onToggle={(id, enabled) => updateMacro(id, (m) => ({ ...m, enabled }))}
+              onStartRename={setRenamingId}
+              onRename={(id, name) => {
+                updateMacro(id, (m) => ({ ...m, name }));
+                setRenamingId(null);
+              }}
+              onContext={macroMenu}
+              onMove={moveMacro}
+            />
+
+            <main className="flex min-w-0 flex-1 flex-col">
+              {sel ? (
+                <>
+                  <MacroHeader
+                    macro={sel}
+                    playing={playing[sel.id]}
+                    onSetTrigger={setTrigger}
+                    onClearTrigger={() => updateMacro(sel.id, (m) => ({ ...m, trigger: null }))}
+                    onProcess={(process) => updateMacro(sel.id, (m) => ({ ...m, process }))}
+                    onAddPriority={() => addPriority(sel.id)}
+                    paused={pausedIds.has(sel.id)}
+                    onChange={(patch) => updateMacro(sel.id, (m) => ({ ...m, ...patch }))}
+                    onPlay={() => flushSaves().then(() => api.playMacro(sel.id)).catch(fail)}
+                    onStop={() => api.stopPlayback(sel.id).catch(fail)}
+                  />
+                  <EventList
+                    key={sel.id}
+                    events={sel.events}
+                    live={live}
+                    recording={rec.state === "recording" && (rec.macroId ?? selectedId) === sel.id}
+                    playingIndex={playing[sel.id]?.eventIndex ?? null}
+                    clipboard={clipboard}
+                    setClipboard={setClipboard}
+                    onChange={(events) => updateMacro(sel.id, (m) => ({ ...m, events }))}
+                    requestCapture={requestCapture}
+                  />
+                </>
+              ) : (
+                <div className="grid flex-1 place-items-center text-center text-mute">
+                  <div>
+                    <p className="text-fg">No macro selected</p>
+                    <button onClick={() => createMacro()} className="mt-3 rounded-md bg-accent px-4 py-1.5 text-sm font-medium text-accent-fg">
+                      New macro
+                    </button>
+                  </div>
+                </div>
+              )}
+            </main>
+          </div>
+        </>
+      )}
 
       {rec.state === "countdown" && (
         <div className="pointer-events-none fixed inset-0 z-30 grid place-items-center bg-black/60">

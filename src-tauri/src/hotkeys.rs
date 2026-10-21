@@ -21,6 +21,17 @@ pub fn rebuild(app: &AppHandle) {
         toast(app, "error", format!("Record hotkey '{hotkey}' is unavailable: {e}"));
     }
 
+    let toggle = st.settings.lock().toggle_hotkey.clone();
+    if !toggle.is_empty() {
+        if let Err(e) = gs.on_shortcut(toggle.as_str(), |app, _s, ev| {
+            if ev.state() == ShortcutState::Pressed {
+                crate::tray::toggle_main(app);
+            }
+        }) {
+            toast(app, "error", format!("Show/hide hotkey '{toggle}' is unavailable: {e}"));
+        }
+    }
+
     let fg = crate::procs::foreground_exe();
     let cfg = st.settings.lock().clone();
     let triggers: Vec<(String, String, String)> = st

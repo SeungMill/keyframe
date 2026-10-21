@@ -13,6 +13,17 @@ pub fn show_main(app: &AppHandle) {
     }
 }
 
+pub fn toggle_main(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let shown = w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false);
+        if shown {
+            let _ = w.hide();
+        } else {
+            show_main(app);
+        }
+    }
+}
+
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Show Keyframe", true, None::<&str>)?;
     let rec = MenuItem::with_id(app, "rec", "Start/Stop Recording", true, None::<&str>)?;

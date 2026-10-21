@@ -1,3 +1,4 @@
+mod admin;
 mod commands;
 mod driver;
 mod hook;
@@ -10,6 +11,7 @@ mod player;
 mod priority;
 mod procs;
 mod recorder;
+mod startup;
 mod state;
 mod tray;
 mod util;
@@ -22,7 +24,6 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(state::AppState::default())
         .invoke_handler(tauri::generate_handler![
@@ -44,6 +45,7 @@ pub fn run() {
             commands::window_minimize,
             commands::window_toggle_maximize,
             commands::window_close,
+            commands::restart_as_admin,
             commands::window_compact,
             commands::window_compact_size,
             commands::driver_status,
@@ -53,13 +55,17 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
             state::load_into(&handle);
+            let s = handle.state::<state::AppState>().settings.lock().clone();
+            let relaunched = std::env::args().any(|a| a == "--relaunched");
+            if !cfg!(debug_assertions) && s.run_as_admin && !relaunched && !admin::is_elevated() && admin::relaunch_elevated() {
+                std::process::exit(0);
+            }
             tray::build(&handle)?;
             hotkeys::rebuild(&handle);
             hook::start(handle.clone());
             hotkeys::start_watcher(handle.clone());
 
-            let s = handle.state::<state::AppState>().settings.lock().clone();
-            commands::sync_autostart(&handle, s.launch_at_login, false);
+            startup::at_launch(s.launch_at_login, s.run_as_admin);
             if s.compact {
                 commands::apply_compact(&handle, true, 220.0);
             }

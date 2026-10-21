@@ -49,6 +49,15 @@ export interface Settings {
   startMinimized: boolean;
   launchAtLogin: boolean;
   closeToTray: boolean;
+  runAsAdmin: boolean;
+  toggleHotkey: string;
+  alwaysOnTop: boolean;
+  opacity: number;
+  compact: boolean;
+  compactCard: string | null;
+  compactOffOpen: string[];
+  compactX: number | null;
+  compactY: number | null;
   delayMode: DelayMode;
   fixedDelayMs: number;
   mouseMode: MouseMode;
@@ -76,6 +85,7 @@ export interface Snapshot {
   recording: RecordingPayload;
   playing: string[];
   selected: string | null;
+  elevated: boolean;
 }
 
 export type CaptureResult =

@@ -1,4 +1,4 @@
-import { MoreHorizontal, Settings as Gear, Square } from "lucide-react";
+import { MoreHorizontal, Pin, Settings as Gear, Square, Minimize2 } from "lucide-react";
 import type { ReactNode } from "react";
 import type { DelayMode, InputBackend, MouseMode, RecordingPayload, Settings } from "../lib/types";
 import { prettyAccel } from "../lib/fmt";
@@ -16,6 +16,10 @@ interface Props {
   onRecord: () => void;
   onStop: () => void;
   onPickHotkey: () => void;
+  onPickToggleHotkey: () => void;
+  elevated: boolean;
+  onRestartAdmin: () => void;
+  onCompact: () => void;
   onImport: () => void;
   onExportSelected: () => void;
   onExportAll: () => void;
@@ -83,6 +87,17 @@ export default function TopBar(p: Props) {
       </button>
       <IconBtn title="Stop" onClick={p.onStop} disabled={!busy && !p.anyPlaying}>
         <Square size={17} />
+      </IconBtn>
+
+      <IconBtn
+        title={s.alwaysOnTop ? "Always on top: on" : "Always on top: off"}
+        active={s.alwaysOnTop}
+        onClick={() => p.onSettings({ ...s, alwaysOnTop: !s.alwaysOnTop })}
+      >
+        <Pin size={17} fill={s.alwaysOnTop ? "currentColor" : "none"} className={s.alwaysOnTop ? "text-accent" : ""} />
+      </IconBtn>
+      <IconBtn title="Compact mode" onClick={p.onCompact}>
+        <Minimize2 size={17} />
       </IconBtn>
 
       <Popover
@@ -168,9 +183,51 @@ export default function TopBar(p: Props) {
             {s.inputBackend === "interception" && <DriverRow />}
 
             <div className="mb-0.5 mt-3 text-xs text-mute">General</div>
+            <Row label="Show / hide hotkey">
+              <span className="flex items-center gap-1.5">
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    p.onPickToggleHotkey();
+                  }}
+                  title="Click, then press the shortcut that shows or hides Keyframe"
+                  className="rounded border border-line bg-base px-2 py-0.5 font-mono text-xs hover:border-accent"
+                >
+                  {s.toggleHotkey ? prettyAccel(s.toggleHotkey) : "Not set"}
+                </button>
+                {s.toggleHotkey && (
+                  <button
+                    title="Clear"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      p.onSettings({ ...s, toggleHotkey: "" });
+                    }}
+                    className="text-xs text-mute hover:text-fg"
+                  >
+                    Clear
+                  </button>
+                )}
+              </span>
+            </Row>
+            <Row label="Run as administrator">
+              <Toggle checked={s.runAsAdmin} onChange={(v) => p.onSettings({ ...s, runAsAdmin: v })} />
+            </Row>
+            <p className="pb-1 text-xs leading-relaxed text-mute">
+              {p.elevated ? "Running as administrator. " : s.runAsAdmin ? "Takes effect the next time Keyframe starts. " : ""}
+              {s.runAsAdmin && !p.elevated && (
+                <button onClick={p.onRestartAdmin} className="text-accent hover:underline">
+                  Restart now
+                </button>
+              )}
+            </p>
             <Row label="Start with Windows">
               <Toggle checked={s.launchAtLogin} onChange={(v) => p.onSettings({ ...s, launchAtLogin: v })} />
             </Row>
+            {s.launchAtLogin && s.runAsAdmin && (
+              <p className="pb-1 text-xs leading-relaxed text-mute">
+                Starts at login with administrator rights and no prompt (Windows asks once when you turn this on).
+              </p>
+            )}
             <Row label="Close button hides to tray">
               <Toggle checked={s.closeToTray} onChange={(v) => p.onSettings({ ...s, closeToTray: v })} />
             </Row>

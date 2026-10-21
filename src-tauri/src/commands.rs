@@ -1,4 +1,4 @@
-use crate::{driver, hook, hotkeys, model::*, player, procs, recorder, state::*};
+use crate::{driver, hook, hotkeys, startup, model::*, player, procs, recorder, state::*};
 use serde::Serialize;
 use std::time::Duration;
 use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition, PhysicalSize};
@@ -12,6 +12,7 @@ pub struct Snapshot {
     recording: RecordingPayload,
     playing: Vec<String>,
     selected: Option<String>,
+    elevated: bool,
 }
 
 #[tauri::command]
@@ -27,6 +28,7 @@ pub async fn get_state(app: AppHandle) -> Snapshot {
         recording,
         playing: st.playback.lock().keys().cloned().collect(),
         selected: st.selected.lock().clone(),
+        elevated: crate::admin::is_elevated(),
     };
     snap
 }
@@ -97,8 +99,8 @@ pub async fn update_settings(app: AppHandle, mut settings: Settings) {
         settings.compact_x = cur.compact_x;
         settings.compact_y = cur.compact_y;
         let changed = (
-            cur.record_hotkey != settings.record_hotkey,
-            cur.launch_at_login != launch,
+            cur.record_hotkey != settings.record_hotkey || cur.toggle_hotkey != settings.toggle_hotkey,
+            cur.launch_at_login != launch || (launch && cur.run_as_admin != settings.run_as_admin),
             cur.compact != settings.compact || cur.compact_card != settings.compact_card,
             cur.always_on_top != settings.always_on_top,
         );
@@ -110,7 +112,8 @@ pub async fn update_settings(app: AppHandle, mut settings: Settings) {
         hotkeys::rebuild(&app);
     }
     if launch_changed {
-        sync_autostart(&app, launch, true);
+        let (app2, admin) = (app.clone(), settings.run_as_admin);
+        tauri::async_runtime::spawn_blocking(move || startup::apply(&app2, launch, admin));
     }
     if pin_changed {
         if let Some(w) = app.get_webview_window("main") {
@@ -386,19 +389,6 @@ pub async fn window_close(app: AppHandle) {
     }
 }
 
-pub fn sync_autostart(app: &AppHandle, on: bool, notify: bool) {
-    use tauri_plugin_autostart::ManagerExt;
-    if cfg!(debug_assertions) && !notify {
-        return;
-    }
-    let launcher = app.autolaunch();
-    let res = if on { launcher.enable() } else { launcher.disable() };
-    if let Err(e) = res {
-        if notify {
-            toast(app, "error", format!("Could not change start-with-Windows: {e}"));
-        }
-    }
-}
 
 #[tauri::command]
 pub async fn driver_status(app: AppHandle) -> driver::DriverStatus {
@@ -419,4 +409,17 @@ pub async fn driver_install(app: AppHandle, uninstall: bool) -> Result<String, S
 #[tauri::command]
 pub async fn list_processes() -> Vec<procs::ProcInfo> {
     procs::list_windows()
+}
+
+#[tauri::command]
+pub async fn restart_as_admin(app: AppHandle) -> Result<(), String> {
+    if crate::admin::is_elevated() {
+        return Ok(());
+    }
+    persist(&app);
+    if crate::admin::relaunch_elevated() {
+        player::stop_all(&app);
+        std::process::exit(0);
+    }
+    Err("The administrator prompt was declined.".into())
 }

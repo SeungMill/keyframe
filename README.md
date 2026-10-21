@@ -19,6 +19,9 @@ npm run tauri build
 - Each macro has a trigger (key combo or mouse button), a play mode (once, N times, toggle, while held) and an optional app it is limited to.
 - To hold a key or mouse button while other actions run, select those actions, right-click and pick "Hold a key during these" (or mouse button). Select actions and use "Wrap in loop" to repeat them.
 - Priority keys: each macro can have keys or mouse buttons that pause it while you hold them, so you can do something else by hand. It resumes shortly after you let go (the delay is adjustable). Set them with the pause button in the macro header.
+- Compact mode (the shrink icon in the top bar) turns Keyframe into a small card you can keep over your game. Each folder is a card and the arrows switch between them. Only the macros in the current card are armed, and a macro that isn't in a folder gets a card of its own. Each macro has a switch to turn it on or off, and anything switched off folds into an "off" line under the list. Expanding goes back to the full window, where everything that's switched on is armed again.
+- Settings > General has a show / hide hotkey, "Run as administrator" (Keyframe relaunches itself elevated, which the Interception driver needs) and "Start with Windows". With both on, Windows starts Keyframe at login through a scheduled task, so there is no prompt.
+- The pin keeps the window on top of other windows. The opacity slider in the compact card makes only the compact window see-through.
 - Macros can be put in folders and searched. Import and export live in the `...` menu.
 - Themes are defined in `src/lib/themes.ts`. Add an entry and it shows up in Settings.
 - The close button quits the app. Turn on "Close button hides to tray" in Settings to keep it running in the background instead.
